@@ -1,0 +1,6 @@
+{
+  "image": "cjvirtucio87/devcontainer-go:rocky8",
+  "overrideCommand": false,
+  "remoteUser": "dev",
+  "updateRemoteUserUID": true
+}

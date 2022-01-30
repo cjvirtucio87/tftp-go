@@ -18,7 +18,6 @@ fi
 
 BUILD_ROOT_DIR="$(dirname "$(readlink --canonicalize "$0")")"
 readonly BUILD_ROOT_DIR
-readonly DEV_IMAGE_TAG="cjvirtucio87/tftp-go-dev:latest"
 readonly ROCKY_IMAGE_TAG="cjvirtucio87/docker-base-rockylinux:latest"
 
 function docker_build {
@@ -31,18 +30,12 @@ function docker_build {
     "${BUILD_ROOT_DIR}"
 }
 
-function docker_build_dev {
-  docker_build_rocky
-  docker_build "${BUILD_ROOT_DIR}/docker/dev/Dockerfile" "${DEV_IMAGE_TAG}"
-}
-
 function docker_build_rocky {
   docker_build "${BUILD_ROOT_DIR}/docker/rockylinux/Dockerfile" "${ROCKY_IMAGE_TAG}"
 }
 
 function main {
   docker_build_rocky
-  docker_build_dev
 }
 
 (return 0 2>/dev/null) || main "$@"
