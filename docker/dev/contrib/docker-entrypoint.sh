@@ -3,10 +3,10 @@
 set -e
 
 function main {
-  printf "%s:x:%d:%d:Developer:%s:/usr/sbin/nologin" \
+  printf "%s:x:%d:%d:Developer:%s:/usr/bin/bash" \
     "${USER}" \
-    "$(id -u)" \
-    0 \
+    "$(id --user)" \
+    "$(id --group)" \
     "${HOME}" >> /etc/passwd
 
   >&2 echo "dropping into shell"
