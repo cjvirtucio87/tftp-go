@@ -19,7 +19,6 @@ fi
 BUILD_ROOT_DIR="$(dirname "$(readlink --canonicalize "$0")")"
 readonly BUILD_ROOT_DIR
 readonly ROCKY_IMAGE_TAG="cjvirtucio87/docker-base-rockylinux:latest"
-readonly VIM_GO_DEVC_IMAGE_TAG="cjvirtucio87/vim-go-devc:latest"
 
 function docker_build {
   local filepath=$1
@@ -35,13 +34,8 @@ function docker_build_rocky {
   docker_build "${BUILD_ROOT_DIR}/docker/rockylinux/Dockerfile" "${ROCKY_IMAGE_TAG}"
 }
 
-function docker_build_vim_go_devc {
-  docker_build "${BUILD_ROOT_DIR}/docker/vim_go_devc/Dockerfile" "${VIM_GO_DEVC_IMAGE_TAG}"
-}
-
 function main {
   docker_build_rocky
-  docker_build_vim_go_devc
 }
 
 (return 0 2>/dev/null) || main "$@"
