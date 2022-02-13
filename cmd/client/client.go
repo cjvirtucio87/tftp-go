@@ -21,6 +21,7 @@ func main() {
 	}
 
 	c := tftp.Client{
+        Retries: 10,
 		Writer: os.Stdout,
 	}
 	log.Fatal(c.Send(*clientAddress, *address, *filename))

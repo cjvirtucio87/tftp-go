@@ -8,6 +8,7 @@ import (
 )
 
 type Client struct {
+    Retries int
 	Writer io.Writer
 }
 
@@ -22,7 +23,7 @@ func (c Client) Send(clientAddr string, addr string, filename string) error {
 		return fmt.Errorf("failed to send read request: [%w]", err)
 	}
 
-	for i := 10; i > 0; i-- {
+	for i := c.Retries; i > 0; i-- {
 		replyBuf := make([]byte, DatagramSize)
 		_, _, err = conn.ReadFrom(replyBuf)
 		if err != nil {
