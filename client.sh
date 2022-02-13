@@ -10,10 +10,14 @@ set -e
 ROOT_DIR="$(dirname "$(readlink --canonicalize "$0")")"
 readonly ROOT_DIR
 
+function log {
+  >&2 printf '[%s] %s\n' "$(date --iso=s)" "$1"
+}
+
 function cleanup {
-  echo "--- start cleanup ---"
+  log "--- start cleanup ---"
   rm -f "${TEMP_FILE:?}"
-  echo "--- end cleanup ---"
+  log "--- end cleanup ---"
 }
 
 function main {
