@@ -251,6 +251,7 @@ func (rrq *ReadRequest) UnmarshalBinary(b []byte) error {
 }
 
 type Server struct {
+    Logger Logger
 	Payload []byte
 	Retries uint8
 	Timeout time.Duration
@@ -291,7 +292,7 @@ func (s Server) handle(conn net.PacketConn, addr net.Addr, buf []byte) {
 		log.Printf("[%s] received error: %v", addr.String(), errPkt.Message)
 		return
 	default:
-		log.Printf("[%s] bad packet", addr.String())
+		s.Logger.Infof("[%s] bad packet", addr.String())
 	}
 }
 
@@ -305,7 +306,7 @@ func (s Server) ListenAndServe(addr string) error {
 		_ = conn.Close()
 	}(conn)
 
-	log.Printf("Listening on %s ...\n", conn.LocalAddr())
+	s.Logger.Infof("Listening on %s ...\n", conn.LocalAddr())
 
 	return s.Serve(conn)
 }

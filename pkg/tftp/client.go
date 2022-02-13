@@ -8,6 +8,7 @@ import (
 )
 
 type Client struct {
+    Logger Logger
 	Retries int
 	Writer  io.Writer
 }
@@ -55,7 +56,7 @@ func (c Client) send(conn net.PacketConn, addr string, b []byte) error {
 		return fmt.Errorf("failed sending bytes to addr [%s]", udpAddr)
 	}
 
-	log.Printf("wrote [%d] bytes to addr [%s]", n, addr)
+	c.Logger.Infof("wrote [%d] bytes to addr [%s]", n, addr)
 
 	return nil
 }

@@ -21,6 +21,7 @@ func main() {
 	}
 
 	c := tftp.Client{
+        Logger: tftp.NewZapLogger(),
 		Retries: 10,
 		Writer:  os.Stdout,
 	}
