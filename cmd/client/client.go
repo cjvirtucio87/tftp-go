@@ -4,6 +4,7 @@ import (
 	"cjvirtucio87/tftp-go/pkg/tftp"
 	"flag"
 	"log"
+	"os"
 )
 
 var (
@@ -19,6 +20,8 @@ func main() {
 		log.Fatal("filename must not be empty")
 	}
 
-	c := tftp.Client{}
+	c := tftp.Client{
+		Writer: os.Stdout,
+	}
 	log.Fatal(c.Send(*clientAddress, *address, *filename))
 }
