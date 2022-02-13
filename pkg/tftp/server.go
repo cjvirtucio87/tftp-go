@@ -9,8 +9,11 @@ import (
 )
 
 const (
-	DatagramSize = 516
-	BlockSize    = DatagramSize - 4 // accounting for OpCode and Block number
+	BlockNumberSize = 2
+	DatagramSize    = 516
+	ErrCodeSize     = 2
+	BlockSize       = DatagramSize - (OpCodeSize + BlockNumberSize)
+	OpCodeSize      = 2
 )
 
 type Server struct {
@@ -20,16 +23,10 @@ type Server struct {
 	Timeout time.Duration
 }
 
-func (s Server) handle(conn net.PacketConn, addr net.Addr, buf []byte) {
-	var (
-		ackPkt  Ack
-		dataPkt Data
-		errPkt  Err
-		rrq     ReadRequest
-	)
-	switch {
-	case rrq.UnmarshalBinary(buf) == nil:
-		dataPkt = Data{
+func (s Server) handle(conn net.PacketConn, addr net.Addr, op Operation) {
+	switch op.(type) {
+	case *ReadRequest:
+		dataPkt := Data{
 			Payload: bytes.NewReader(s.Payload),
 		}
 		err := sendDataPkt(conn, addr, dataPkt)
@@ -38,11 +35,17 @@ func (s Server) handle(conn net.PacketConn, addr net.Addr, buf []byte) {
 		}
 
 		return
-	case ackPkt.UnmarshalBinary(buf) == nil:
-		dataPkt = Data{
+	case *Ack:
+		dataPkt := Data{
 			Payload: bytes.NewReader(s.Payload),
 		}
-		if uint16(ackPkt) != dataPkt.Block {
+
+		ackPkt, ok := op.(*Ack)
+		if !ok {
+			return
+		}
+
+		if uint16(*ackPkt) != dataPkt.Block {
 			return
 		}
 
@@ -51,8 +54,13 @@ func (s Server) handle(conn net.PacketConn, addr net.Addr, buf []byte) {
 			log.Printf("error sending data packet to client [%s]: %v", addr.String(), err)
 			return
 		}
-	case errPkt.UnmarshalBinary(buf) == nil:
-		log.Printf("[%s] received error: %v", addr.String(), errPkt.Message)
+	case *Err:
+		errPkt, ok := op.(*Err)
+		if !ok {
+			return
+		}
+
+		s.Logger.Errorf("[%s] received error: %v", addr.String(), errPkt.Message)
 		return
 	default:
 		s.Logger.Infof("[%s] bad packet", addr.String())
@@ -113,6 +121,11 @@ func (s Server) Serve(conn net.PacketConn) error {
 			return fmt.Errorf("failed to read request into buffer: [%w]", err)
 		}
 
-		go s.handle(conn, addr, buf)
+		op, err := UnmarshalBinary(buf)
+		if err != nil {
+			return fmt.Errorf("error unmarshaling binary from client [%s]: [%w]", conn.LocalAddr(), err)
+		}
+
+		go s.handle(conn, addr, op)
 	}
 }

@@ -1,11 +1,12 @@
 package tftp
 
 import (
-  "bytes"
-  "encoding/binary"
-  "fmt"
-  "io"
-  "strings"
+	"bytes"
+	"encoding"
+	"encoding/binary"
+	"fmt"
+	"io"
+	"strings"
 )
 
 type OpCode uint16
@@ -18,13 +19,16 @@ const (
 	OpErr
 )
 
+type Operation interface {
+	encoding.BinaryMarshaler
+	encoding.BinaryUnmarshaler
+}
+
 type Ack uint16
 
-// first 2 bytes: op code
-// last 2 bytes: block number for the data block that the client is acknowledge receipt of
 func (a Ack) MarshalBinary() ([]byte, error) {
 	b := new(bytes.Buffer)
-	b.Grow(2 + 2)
+	b.Grow(OpCodeSize + BlockNumberSize)
 
 	err := binary.Write(b, binary.BigEndian, OpAck)
 	if err != nil {
@@ -60,9 +64,6 @@ type Data struct {
 	Payload io.Reader
 }
 
-// 2 bytes OpCode
-// 2 bytes Block
-// n bytes Payload
 func (d *Data) MarshalBinary() ([]byte, error) {
 	b := new(bytes.Buffer)
 	b.Grow(DatagramSize)
@@ -136,6 +137,28 @@ type Err struct {
 	Message string
 }
 
+func (e Err) MarshalBinary() ([]byte, error) {
+	b := new(bytes.Buffer)
+	b.Grow((OpCodeSize + ErrCodeSize) + len(e.Message) + 1)
+
+	err := binary.Write(b, binary.BigEndian, OpErr)
+	if err != nil {
+		return nil, fmt.Errorf("error writing operation code to buffer: [%w]", err)
+	}
+
+	err = binary.Write(b, binary.BigEndian, &e.Error)
+	if err != nil {
+		return nil, fmt.Errorf("error writing error code to buffer: [%w]", err)
+	}
+
+	_, err = io.CopyN(b, bytes.NewReader([]byte(e.Message)), DatagramSize)
+	if err != nil {
+		return nil, fmt.Errorf("error writing error message to buffer: [%w]", err)
+	}
+
+	return b.Bytes(), nil
+}
+
 func (e Err) UnmarshalBinary(b []byte) error {
 	var code OpCode
 	r := bytes.NewBuffer(b)
@@ -167,7 +190,7 @@ type ReadRequest struct {
 
 func (rrq ReadRequest) MarshalBinary() ([]byte, error) {
 	b := new(bytes.Buffer)
-	b.Grow(2 + 2 + len(rrq.Filename) + 1 + len(rrq.Mode) + 1)
+	b.Grow((OpCodeSize + BlockNumberSize) + len(rrq.Filename) + 1 + len(rrq.Mode) + 1)
 
 	err := binary.Write(b, binary.BigEndian, OpRRQ)
 	if err != nil {
@@ -197,11 +220,6 @@ func (rrq ReadRequest) MarshalBinary() ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-// first 2 bytes: operation code
-// next n bytes: filename
-// 0 byte delimiter
-// next n bytes: mode
-// 0 byte delimiter
 func (rrq *ReadRequest) UnmarshalBinary(b []byte) error {
 	r := bytes.NewBuffer(b)
 
@@ -240,4 +258,22 @@ func (rrq *ReadRequest) UnmarshalBinary(b []byte) error {
 	}
 
 	return nil
+}
+
+func UnmarshalBinary(buf []byte) (Operation, error) {
+	var (
+		ackPkt Ack
+		errPkt Err
+		rrq    ReadRequest
+	)
+	switch {
+	case rrq.UnmarshalBinary(buf) == nil:
+		return &rrq, nil
+	case ackPkt.UnmarshalBinary(buf) == nil:
+		return &ackPkt, nil
+	case errPkt.UnmarshalBinary(buf) == nil:
+		return &errPkt, nil
+	default:
+		return nil, fmt.Errorf("buffer could not be unmarshaled into operation")
+	}
 }
