@@ -13,6 +13,7 @@ import (
 
 const (
   DatagramSize = 516
+  BlockSize = DatagramSize - 4 // accounting for OpCode and Block number
 )
 
 type OpCode uint16
@@ -65,6 +66,33 @@ func (a Ack) UnmarshalBinary(b []byte) error {
 type Data struct {
   Block uint16
   Payload io.Reader
+}
+
+// 2 bytes OpCode
+// 2 bytes Block
+// n bytes Payload
+func (d Data) MarshalBinary() ([]byte, error) {
+  b := new(bytes.Buffer)
+  b.Grow(DatagramSize)
+
+  d.Block++
+
+  err := binary.Write(b, binary.BigEndian, OpData)
+  if err != nil {
+    return nil, fmt.Errorf("error writing operation code: [%w]", err)
+  }
+
+  err = binary.Write(b, binary.BigEndian, d.Block)
+  if err != nil {
+    return nil, fmt.Errorf("error writing block number: [%w]", err)
+  }
+
+  _, err = io.CopyN(b, d.Payload, BlockSize)
+  if err != nil {
+    return nil, fmt.Errorf("error writing payload up to block size: [%w]", err)
+  }
+
+  return b.Bytes(), nil
 }
 
 func (d Data) UnmarshalBinary(b []byte) error {
@@ -174,7 +202,7 @@ func (rrq ReadRequest) UnmarshalBinary(b []byte) error {
     return fmt.Errorf("invalid mode: [%s]", rrq.Mode)
   }
 
-  if actual := strings.ToLower(rrq.Mode); actual != "octet" {
+  if strings.ToLower(rrq.Mode) != "octet" {
     return fmt.Errorf("only binary transfers supported")
   }
 
@@ -209,55 +237,55 @@ func (s Server) handle(clientAddr string, rrq ReadRequest) {
     buf = make([]byte, DatagramSize)
   )
 
-NEXTPACKET:
-    for n := DatagramSize; n == DatagramSize; {
-        data, err := dataPkt.MarshalBinary()
-        if err != nil {
-            log.Printf("[%s] preparing data packet: %v", clientAddr, err)
-            return
-        }
+  NEXTPACKET:
+  for n := DatagramSize; n == DatagramSize; {
+      data, err := dataPkt.MarshalBinary()
+      if err != nil {
+          log.Printf("[%s] preparing data packet: %v", clientAddr, err)
+          return
+      }
 
-    RETRY:
-        for i := s.Retries; i > 0; i-- {
-            n, err = conn.Write(data) // send the data packet
-            if err != nil {
-                log.Printf("[%s] write: %v", clientAddr, err)
-                return
-            }
+      RETRY:
+      for i := s.Retries; i > 0; i-- {
+          n, err = conn.Write(data) // send the data packet
+          if err != nil {
+              log.Printf("[%s] write: %v", clientAddr, err)
+              return
+          }
 
-            // wait for the client's ACK packet
-            _ = conn.SetReadDeadline(time.Now().Add(s.Timeout))
+          // wait for the client's ACK packet
+          _ = conn.SetReadDeadline(time.Now().Add(s.Timeout))
 
-            _, err = conn.Read(buf)
-            if err != nil {
-                if nErr, ok := err.(net.Error); ok && nErr.Timeout() {
-                    continue RETRY
-                }
+          _, err = conn.Read(buf)
+          if err != nil {
+              if nErr, ok := err.(net.Error); ok && nErr.Timeout() {
+                  continue RETRY
+              }
 
-                log.Printf("[%s] waiting for ACK: %v", clientAddr, err)
-                return
-            }
+              log.Printf("[%s] waiting for ACK: %v", clientAddr, err)
+              return
+          }
 
-            switch {
-            case ackPkt.UnmarshalBinary(buf) == nil:
-                if uint16(ackPkt) == dataPkt.Block {
-                    // received ACK; send next data packet
-                    continue NEXTPACKET
-                }
-            case errPkt.UnmarshalBinary(buf) == nil:
-                log.Printf("[%s] received error: %v",
-                    clientAddr, errPkt.Message)
-                return
-            default:
-                log.Printf("[%s] bad packet", clientAddr)
-            }
-        }
+          switch {
+          case ackPkt.UnmarshalBinary(buf) == nil:
+              if uint16(ackPkt) == dataPkt.Block {
+                  // received ACK; send next data packet
+                  continue NEXTPACKET
+              }
+          case errPkt.UnmarshalBinary(buf) == nil:
+              log.Printf("[%s] received error: %v",
+                  clientAddr, errPkt.Message)
+              return
+          default:
+              log.Printf("[%s] bad packet", clientAddr)
+          }
+      }
 
-        log.Printf("[%s] exhausted retries", clientAddr)
-        return
-    }
+      log.Printf("[%s] exhausted retries", clientAddr)
+      return
+  }
 
-    log.Printf("[%s] sent %d blocks", clientAddr, dataPkt.Block)
+  log.Printf("[%s] sent %d blocks", clientAddr, dataPkt.Block)
 }
 
 func (s Server) ListenAndServe(addr string) error {
