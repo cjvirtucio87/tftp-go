@@ -306,7 +306,7 @@ func (s Server) ListenAndServe(addr string) error {
 		_ = conn.Close()
 	}(conn)
 
-	s.Logger.Infof("Listening on %s ...\n", conn.LocalAddr())
+	s.Logger.Infof("Listening on %s ...", conn.LocalAddr())
 
 	return s.Serve(conn)
 }
