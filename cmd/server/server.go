@@ -27,5 +27,9 @@ func main() {
 	s := tftp.Server{
 		Payload: p,
 	}
-	log.Fatal(s.ListenAndServe(*address))
+
+	err = s.ListenAndServe(*address)
+	if err != nil {
+		log.Fatal(err)
+	}
 }

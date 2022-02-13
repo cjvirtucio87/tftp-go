@@ -8,8 +8,8 @@ import (
 )
 
 type Client struct {
-    Retries int
-	Writer io.Writer
+	Retries int
+	Writer  io.Writer
 }
 
 func (c Client) Send(clientAddr string, addr string, filename string) error {
@@ -23,24 +23,21 @@ func (c Client) Send(clientAddr string, addr string, filename string) error {
 		return fmt.Errorf("failed to send read request: [%w]", err)
 	}
 
-	for i := c.Retries; i > 0; i-- {
-		replyBuf := make([]byte, DatagramSize)
-		_, _, err = conn.ReadFrom(replyBuf)
+	n := int64(DatagramSize)
+	for n == DatagramSize {
+		dataPkt, err := c.waitForData(conn)
 		if err != nil {
-			return fmt.Errorf("[%s] error reading reply from server: [%w]", conn.LocalAddr(), err)
+			return fmt.Errorf("[%s] error waiting for data packet: [%w]", conn.LocalAddr(), err)
 		}
 
-		var dataPkt Data
-		err = dataPkt.UnmarshalBinary(replyBuf)
+		n, err = io.Copy(c.Writer, dataPkt.Payload)
 		if err != nil {
-			log.Printf("[%s] error unmarshaling data packet from server: [%v]", conn.LocalAddr(), err)
-			continue
+			return fmt.Errorf("[%s] error reading payload into writer: [%w]", conn.LocalAddr(), err)
 		}
 
-		_, err = io.Copy(c.Writer, dataPkt.Payload)
+		err = c.sendAck(conn, addr, *dataPkt)
 		if err != nil {
-			log.Printf("[%s] error reading payload into writer: [%v]", conn.LocalAddr(), err)
-			continue
+			return fmt.Errorf("[%s] error sending acknowledgement: [%w]", conn.LocalAddr(), err)
 		}
 	}
 
@@ -63,6 +60,22 @@ func (c Client) send(conn net.PacketConn, addr string, b []byte) error {
 	return nil
 }
 
+func (c Client) sendAck(conn net.PacketConn, addr string, dataPkt Data) error {
+	var ackPkt Ack
+	ackPkt = Ack(dataPkt.Block)
+	b, err := ackPkt.MarshalBinary()
+
+	if err != nil {
+		return fmt.Errorf("failed to send acknowledgement: [%w]", err)
+	}
+
+	return c.send(
+		conn,
+		addr,
+		b,
+	)
+}
+
 func (c Client) sendRrq(conn net.PacketConn, addr string, filename string) error {
 	b, err := ReadRequest{
 		Filename: filename,
@@ -77,4 +90,26 @@ func (c Client) sendRrq(conn net.PacketConn, addr string, filename string) error
 		addr,
 		b,
 	)
+}
+
+func (c Client) waitForData(conn net.PacketConn) (*Data, error) {
+	for i := c.Retries; i > 0; i-- {
+		replyBuf := make([]byte, DatagramSize)
+		_, _, err := conn.ReadFrom(replyBuf)
+		if err != nil {
+			log.Printf("[%s] error reading reply from server: [%v]", conn.LocalAddr(), err)
+			continue
+		}
+
+		var dataPkt Data
+		err = dataPkt.UnmarshalBinary(replyBuf)
+		if err != nil {
+			log.Printf("[%s] error unmarshaling data packet from server: [%v]", conn.LocalAddr(), err)
+			continue
+		}
+
+		return &dataPkt, nil
+	}
+
+	return nil, fmt.Errorf("[%s] ran out of retries waiting for data", conn.LocalAddr())
 }

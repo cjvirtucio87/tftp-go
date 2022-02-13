@@ -32,7 +32,7 @@ type Ack uint16
 // last 2 bytes: block number for the data block that the client is acknowledge receipt of
 func (a Ack) MarshalBinary() ([]byte, error) {
 	b := new(bytes.Buffer)
-	b.Grow(DatagramSize)
+	b.Grow(2 + 2)
 
 	err := binary.Write(b, binary.BigEndian, OpAck)
 	if err != nil {
@@ -47,7 +47,7 @@ func (a Ack) MarshalBinary() ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-func (a Ack) UnmarshalBinary(b []byte) error {
+func (a *Ack) UnmarshalBinary(b []byte) error {
 	var code OpCode
 	r := bytes.NewReader(b)
 
@@ -71,7 +71,7 @@ type Data struct {
 // 2 bytes OpCode
 // 2 bytes Block
 // n bytes Payload
-func (d Data) MarshalBinary() ([]byte, error) {
+func (d *Data) MarshalBinary() ([]byte, error) {
 	b := new(bytes.Buffer)
 	b.Grow(DatagramSize)
 
@@ -114,6 +114,11 @@ func (d *Data) UnmarshalBinary(b []byte) error {
 
 	if code != OpData {
 		return fmt.Errorf("expected data code, got [%d]", code)
+	}
+
+	err = binary.Read(bytes.NewReader(b[2:4]), binary.BigEndian, &d.Block)
+	if err != nil {
+		return fmt.Errorf("encountered error reading binary into block number: [%w]", err)
 	}
 
 	d.Payload = bytes.NewReader(b[4:])
@@ -251,78 +256,43 @@ type Server struct {
 	Timeout time.Duration
 }
 
-func (s Server) handle(clientAddr string, rrq ReadRequest) {
-	log.Printf("[%s] requested file: %s", clientAddr, rrq.Filename)
-
-	conn, err := net.Dial("udp", clientAddr)
-	if err != nil {
-		log.Printf("[%s] error dialing client address: %v", clientAddr, err)
-		return
-	}
-
-	defer func() {
-		_ = conn.Close()
-	}()
-
+func (s Server) handle(conn net.PacketConn, addr net.Addr, buf []byte) {
 	var (
 		ackPkt  Ack
+		dataPkt Data
 		errPkt  Err
+		rrq     ReadRequest
+	)
+	switch {
+	case rrq.UnmarshalBinary(buf) == nil:
 		dataPkt = Data{
 			Payload: bytes.NewReader(s.Payload),
 		}
-		buf = make([]byte, DatagramSize)
-	)
-
-NEXTPACKET:
-	for n := DatagramSize; n == DatagramSize; {
-		data, err := dataPkt.MarshalBinary()
+		err := sendDataPkt(conn, addr, dataPkt)
 		if err != nil {
-			log.Printf("[%s] preparing data packet: %v", clientAddr, err)
+			log.Printf("error sending data packet to client [%s]: %v", addr.String(), err)
+		}
+
+		return
+	case ackPkt.UnmarshalBinary(buf) == nil:
+		dataPkt = Data{
+			Payload: bytes.NewReader(s.Payload),
+		}
+		if uint16(ackPkt) != dataPkt.Block {
 			return
 		}
 
-	RETRY:
-		for i := s.Retries; i > 0; i-- {
-			log.Printf("sending data block to client [%s]", clientAddr)
-			n, err = conn.Write(data) // send the data packet
-			if err != nil {
-				log.Printf("[%s] write: %v", clientAddr, err)
-				return
-			}
-
-			// wait for the client's ACK packet
-			_ = conn.SetReadDeadline(time.Now().Add(s.Timeout))
-
-			_, err = conn.Read(buf)
-			if err != nil {
-				if nErr, ok := err.(net.Error); ok && nErr.Timeout() {
-					continue RETRY
-				}
-
-				log.Printf("[%s] waiting for ACK: %v", clientAddr, err)
-				return
-			}
-
-			switch {
-			case ackPkt.UnmarshalBinary(buf) == nil:
-				if uint16(ackPkt) == dataPkt.Block {
-					// received ACK; send next data packet
-					continue NEXTPACKET
-				}
-			case errPkt.UnmarshalBinary(buf) == nil:
-				log.Printf("[%s] received error: %v",
-					clientAddr, errPkt.Message)
-				return
-			default:
-				log.Printf("[%s] bad packet", clientAddr)
-			}
+		err := sendDataPkt(conn, addr, dataPkt)
+		if err != nil {
+			log.Printf("error sending data packet to client [%s]: %v", addr.String(), err)
+			return
 		}
-
-		log.Printf("[%s] exhausted retries", clientAddr)
+	case errPkt.UnmarshalBinary(buf) == nil:
+		log.Printf("[%s] received error: %v", addr.String(), errPkt.Message)
 		return
+	default:
+		log.Printf("[%s] bad packet", addr.String())
 	}
-
-	log.Printf("[%s] sent %d blocks", clientAddr, dataPkt.Block)
 }
 
 func (s Server) ListenAndServe(addr string) error {
@@ -338,6 +308,20 @@ func (s Server) ListenAndServe(addr string) error {
 	log.Printf("Listening on %s ...\n", conn.LocalAddr())
 
 	return s.Serve(conn)
+}
+
+func sendDataPkt(conn net.PacketConn, addr net.Addr, dataPkt Data) error {
+	data, err := dataPkt.MarshalBinary()
+	if err != nil {
+		return fmt.Errorf("error during attempt to send data packet: %w", err)
+	}
+
+	_, err = conn.WriteTo(data, addr)
+	if err != nil {
+		return fmt.Errorf("error during attempt to send data packet: %w", err)
+	}
+
+	return nil
 }
 
 func (s Server) Serve(conn net.PacketConn) error {
@@ -357,7 +341,6 @@ func (s Server) Serve(conn net.PacketConn) error {
 		s.Timeout = 6 * time.Second
 	}
 
-	var rrq ReadRequest
 	for {
 		buf := make([]byte, DatagramSize)
 
@@ -366,12 +349,6 @@ func (s Server) Serve(conn net.PacketConn) error {
 			return fmt.Errorf("failed to read request into buffer: [%w]", err)
 		}
 
-		err = rrq.UnmarshalBinary(buf)
-		if err != nil {
-			log.Printf("[%s] bad address: [%v]", addr, err)
-			continue
-		}
-
-		go s.handle(addr.String(), rrq)
+		go s.handle(conn, addr, buf)
 	}
 }
