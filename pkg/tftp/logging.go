@@ -12,7 +12,6 @@ type Logger interface {
 
 func NewZapLogger() Logger {
 	logger, _ := zap.NewProduction()
-	defer logger.Sync()
 
 	return &ZapLogger{
 		SugaredLogger: logger.Sugar(),
@@ -24,13 +23,13 @@ type ZapLogger struct {
 }
 
 func (l *ZapLogger) Infof(tmpl string, args ...interface{}) {
-	l.SugaredLogger.Infof(tmpl, args)
+	l.SugaredLogger.Infof(tmpl, args...)
 }
 
 func (l *ZapLogger) Debugf(tmpl string, args ...interface{}) {
-	l.SugaredLogger.Debugf(tmpl, args)
+	l.SugaredLogger.Debugf(tmpl, args...)
 }
 
 func (l *ZapLogger) Errorf(tmpl string, args ...interface{}) {
-	l.SugaredLogger.Errorf(tmpl, args)
+	l.SugaredLogger.Errorf(tmpl, args...)
 }
