@@ -2,7 +2,7 @@
 
 set -e
 
-### Start the TFTP server.
+### Communicate with a TFTP server.
 ###
 ### Usage:
 ###  ./client.sh
