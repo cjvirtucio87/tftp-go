@@ -25,7 +25,7 @@ func main() {
 	}
 
 	s := tftp.Server{
-        Logger: tftp.NewZapLogger(),
+		Logger:  tftp.NewZapLogger(),
 		Payload: p,
 	}
 

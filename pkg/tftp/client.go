@@ -8,7 +8,7 @@ import (
 )
 
 type Client struct {
-    Logger Logger
+	Logger  Logger
 	Retries int
 	Writer  io.Writer
 }

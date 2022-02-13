@@ -251,7 +251,7 @@ func (rrq *ReadRequest) UnmarshalBinary(b []byte) error {
 }
 
 type Server struct {
-    Logger Logger
+	Logger  Logger
 	Payload []byte
 	Retries uint8
 	Timeout time.Duration
